@@ -9,42 +9,42 @@ using System.Threading.Tasks;
 
 class Program
 {
-    // Глобальная «заглушка» для синхронизации вывода в консоль:
+
     private static readonly object _consoleLock = new object();
 
     static async Task Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
 
-        // Укажите пути к папкам
-        string videosDir = @"E:\torrent\Fullmetal.Alchemist.Brotherhood.2009.MVO.STEPonee";
-        string audiosDir = @"E:\torrent\Fullmetal.Alchemist.Brotherhood.2009.MVO.STEPonee\Audio";
-        string outputDir = @"E:\torrent\Fullmetal.Alchemist.Brotherhood.2009.MVO.STEPonee\right2";
+        
+        string videosDir = @"Episodes";
+        string audiosDir = @"Audio";
+        string outputDir = @"Output";
 
-        // Проверяем наличие mkvmerge
+        
         if (!IsMkvmergeInstalled())
         {
             lock (_consoleLock)
             {
-                Console.WriteLine("[ОШИБКА] mkvmerge не установлен или не добавлен в PATH.");
+                Console.WriteLine("No mkvmerge in the PATH");
             }
             return;
         }
 
-        // Создаём выходную директорию, если её нет
+        
         Directory.CreateDirectory(outputDir);
 
-        // Получаем все .mp4
+        
         DirectoryInfo videosDirectoryInfo = new DirectoryInfo(videosDir);
         FileInfo[] mp4Files = videosDirectoryInfo.GetFiles("*.mp4");
 
-        // Семафор на 2 «пропуска»
+        
         SemaphoreSlim concurrency = new SemaphoreSlim(2, 2);
 
-        // Список задач
+        
         var tasks = new List<Task>();
 
-        // Перебираем все видеофайлы и формируем задачи
+        
         foreach (FileInfo videoFile in mp4Files)
         {
             tasks.Add(Task.Run(async () =>
@@ -52,7 +52,7 @@ class Program
                 await concurrency.WaitAsync();
                 try
                 {
-                    // Выполняем всю логику в отдельном методе
+                    
                     await ProcessVideoAsync(videoFile, audiosDir, outputDir);
                 }
                 finally
@@ -62,61 +62,55 @@ class Program
             }));
         }
 
-        // Ждём, пока все задачи завершатся
+        
         await Task.WhenAll(tasks);
 
         lock (_consoleLock)
         {
-            Console.WriteLine("[ИНФО] Объединение завершено.");
+            Console.WriteLine("Merge done");
         }
 
-        // Чтобы консоль не закрывалась мгновенно (если запускаете из IDE)
+        
         Console.ReadKey();
     }
 
-    /// <summary>
-    /// Выполняет всю логику обработки одного видеофайла:
-    /// 1) Определяет номер эпизода;
-    /// 2) Находит соответствующие аудио;
-    /// 3) Запускает mkvmerge в «поточном» режиме вывода.
-    /// </summary>
+   
     private static async Task ProcessVideoAsync(FileInfo videoFile, string audiosDir, string outputDir)
     {
         string baseName = Path.GetFileNameWithoutExtension(videoFile.Name);
 
         lock (_consoleLock)
         {
-            Console.WriteLine($"[ИНФО] Начало обработки: {videoFile.Name}");
+            Console.WriteLine($"Merge processing: {videoFile.Name}");
         }
 
-        // Пытаемся извлечь номер эпизода по шаблону E##
+        
         Match match = Regex.Match(baseName, @"E(\d{2})");
         if (!match.Success)
         {
             lock (_consoleLock)
             {
-                Console.WriteLine($"[ПРЕДУПРЕЖДЕНИЕ] Номер эпизода не найден в файле '{baseName}'. Пропускаем.");
+                Console.WriteLine($"Episode file doesnt found '{baseName}'. Skip.");
             }
             return;
         }
 
         string episodeNum = match.Groups[1].Value;
 
-        // Находим соответствующие аудиофайлы
+        
         FileInfo[] matchedAudios = GetMatchedAudios(episodeNum, audiosDir);
         if (matchedAudios.Length == 0)
         {
             lock (_consoleLock)
             {
-                Console.WriteLine($"[ПРЕДУПРЕЖДЕНИЕ] Не найдены аудиофайлы для эпизода '{episodeNum}'. Пропускаем.");
+                Console.WriteLine($"Audio file doesnt found '{episodeNum}'. Skip.");
             }
             return;
         }
 
-        // Формируем имя выходного файла
         string outputFile = Path.Combine(outputDir, $"{baseName}.mkv");
 
-        // Собираем аргументы для mkvmerge
+       
         var mkvmergeArgs = new List<string>
         {
             "--output",
@@ -139,36 +133,33 @@ class Program
 
         lock (_consoleLock)
         {
-            Console.WriteLine($"[ИНФО {videoFile.Name}] Запуск mkvmerge {finalArgs}");
+            Console.WriteLine($"[{videoFile.Name}] Launch mkvmerge {finalArgs}");
         }
 
-        // Запускаем mkvmerge с «поточным» выводом
+        
         bool success = await RunProcessAsync(
             "mkvmerge",
             finalArgs,
-            videoFile.Name // Чтобы подписывать вывод
+            videoFile.Name 
         );
 
         if (success)
         {
             lock (_consoleLock)
             {
-                Console.WriteLine($"[ИНФО {videoFile.Name}] Успешно объединено: {outputFile}");
+                Console.WriteLine($"[{videoFile.Name}] Merge success: {outputFile}");
             }
         }
         else
         {
             lock (_consoleLock)
             {
-                Console.WriteLine($"[ОШИБКА {videoFile.Name}] Ошибка при объединении.");
+                Console.WriteLine($"[{videoFile.Name}] Error in merge.");
             }
         }
     }
 
-    /// <summary>
-    /// Проверяем, установлен ли mkvmerge (пробуем запустить "mkvmerge --version").
-    /// Если запустилось без ошибок, считаем, что установлен.
-    /// </summary>
+   
     private static bool IsMkvmergeInstalled()
     {
         try
@@ -195,11 +186,7 @@ class Program
         }
     }
 
-    /// <summary>
-    /// Запускает указанный процесс (filename + arguments) в асинхронном режиме,
-    /// перенаправляет вывод построчно и сразу выводит в консоль.
-    /// Возвращает true, если код выхода == 0; иначе false.
-    /// </summary>
+    
     private static async Task<bool> RunProcessAsync(string fileName, string arguments, string fileLabel)
     {
         try
@@ -218,14 +205,14 @@ class Program
             {
                 process.StartInfo = psi;
 
-                // Подписываемся на события вывода
+                
                 process.OutputDataReceived += (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
                         lock (_consoleLock)
                         {
-                            Console.WriteLine($"[{fileLabel} - OUT] {e.Data}");
+                            Console.WriteLine($"{fileLabel} - OUT {e.Data}");
                         }
                     }
                 };
@@ -236,21 +223,21 @@ class Program
                     {
                         lock (_consoleLock)
                         {
-                            Console.WriteLine($"[{fileLabel} - ERR] {e.Data}");
+                            Console.WriteLine($"{fileLabel} - ERR {e.Data}");
                         }
                     }
                 };
 
                 process.Start();
 
-                // Начинаем асинхронное чтение потока вывода и ошибок
+                
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // Асинхронно ждём завершения
+                
                 await Task.Run(() => process.WaitForExit());
 
-                // Возвращаем true, если код выхода 0
+                
                 return process.ExitCode == 0;
             }
         }
@@ -264,9 +251,7 @@ class Program
         }
     }
 
-    /// <summary>
-    /// Возвращает массив файлов *.mka, в чьём BaseName содержится "- [номер эпизода]".
-    /// </summary>
+    
     private static FileInfo[] GetMatchedAudios(string episodeNum, string audiosDir)
     {
         DirectoryInfo audioDirectoryInfo = new DirectoryInfo(audiosDir);
